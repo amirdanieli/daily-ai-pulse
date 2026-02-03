@@ -62,23 +62,13 @@ def summarize_with_gemini(raw_data):
         
         # Using the standard model alias for the new SDK
         response = client.models.generate_content(
-            model='Gemini 2.5 Flash-Lite', 
+            model='gemini-3-flash-preview', 
             contents=prompt
         )
         return response.text
         
     except Exception as e:
         print(f"Gemini API Error: {e}")
-        # If 2.0 fails, try 1.5 as fallback
-        try:
-            print("Retrying with Gemini 1.5 Flash...")
-            response = client.models.generate_content(
-                model='gemini-1.5-flash', 
-                contents=prompt
-            )
-            return response.text
-        except Exception as e2:
-            return f"CRITICAL ERROR: Could not generate briefing.\nPrimary error: {e}\nFallback error: {e2}"
 
 # --- MAIN EXECUTION ---
 def main():
