@@ -3,35 +3,36 @@ import requests
 import datetime
 import google.generativeai as genai
 from bs4 import BeautifulSoup
+import time
 
 # --- CONFIGURATION ---
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"].strip()
 DATE_STR = datetime.datetime.now().strftime("%Y-%m-%d")
 
-# --- SOURCE 1: HACKER NEWS (via Algolia API) ---
+# --- SOURCE 1: HACKER NEWS ---
 def get_hn_ai_news():
     print("Fetching Hacker News AI trends...")
-    # Search for 'AI', 'LLM', 'GPT' in the last 24 hours
-    url = "http://hn.algolia.com/api/v1/search_by_date?query=AI+OR+LLM+OR+GPT&tags=story&hitsPerPage=20"
+    url = "http://hn.algolia.com/api/v1/search_by_date?query=AI+OR+LLM+OR+GPT&tags=story&hitsPerPage=30"
     try:
-        response = requests.get(url).json()
+        response = requests.get(url, timeout=10).json()
         stories = []
         for hit in response['hits']:
-            if hit.get('points', 0) > 50: # Filter for quality (min 50 upvotes)
+            # Filter for quality (min 20 points)
+            if hit.get('points', 0) > 20: 
                 stories.append(f"- [HN] {hit['title']} (Link: {hit.get('url', 'N/A')})")
-        return "\n".join(stories[:10]) # Top 10
+        return "\n".join(stories[:10]) 
     except Exception as e:
-        return f"Error fetching HN: {e}"
+        print(f"Warning: HN fetch failed: {e}")
+        return "No Hacker News data available."
 
-# --- SOURCE 2: GITHUB TRENDING (Scraping) ---
+# --- SOURCE 2: GITHUB TRENDING ---
 def get_github_trending():
     print("Fetching GitHub Trending...")
     url = "https://github.com/trending?since=daily"
     try:
-        page = requests.get(url)
+        page = requests.get(url, timeout=10)
         soup = BeautifulSoup(page.text, 'html.parser')
         repos = []
-        # GitHub's HTML structure changes occasionally, but this usually works
         for row in soup.select('article.Box-row')[:10]:
             repo_name = row.select_one('h2 a').text.strip().replace('\n', '').replace(' ', '')
             desc = row.select_one('p')
@@ -39,14 +40,37 @@ def get_github_trending():
             repos.append(f"- [GitHub] {repo_name}: {desc_text}")
         return "\n".join(repos)
     except Exception as e:
-        return f"Error fetching GitHub: {e}"
+        print(f"Warning: GitHub fetch failed: {e}")
+        return "No GitHub data available."
 
 # --- THE CURATOR (Gemini) ---
 def summarize_with_gemini(raw_data):
     print("Sending data to Gemini...")
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash') # Free and fast
     
+    # Try the specific stable version first, fallback to Pro if it fails
+    models_to_try = ['gemini-1.5-flash-001', 'gemini-1.5-flash', 'gemini-pro']
+    
+    model = None
+    for model_name in models_to_try:
+        try:
+            print(f"Attempting to use model: {model_name}")
+            model = genai.GenerativeModel(model_name)
+            # Test connection with a tiny prompt before sending the big one
+            model.generate_content("test") 
+            print(f"Success! Connected to {model_name}")
+            break
+        except Exception as e:
+            print(f"Failed to connect to {model_name}: {e}")
+            model = None
+
+    if not model:
+        # If all fail, list available models to debug
+        print("CRITICAL ERROR: Could not connect to any model. Listing available models:")
+        for m in genai.list_models():
+            print(m.name)
+        return "Error: Could not generate briefing. Check logs."
+
     prompt = f"""
     You are the producer of a technical AI podcast. 
     Here is the raw stream of news from Hacker News and GitHub for {DATE_STR}:
@@ -54,14 +78,17 @@ def summarize_with_gemini(raw_data):
     {raw_data}
     
     TASK:
-    1. Select the top 5-7 most significant stories/tools. Focus on new open-source tools, model releases, or major research updates. Ignore generic business hype.
-    2. Write a "Podcast Briefing" script. It should be written in a way that is easy to read.
+    1. Select the top 5-7 most significant stories/tools. Focus on new open-source tools, model releases, or major research updates.
+    2. Write a "Podcast Briefing" script.
     3. Format it clearly with sections: "Top Headlines", "Deep Dive (The #1 Story)", and "Quick Hits".
     4. Keep it concise.
     """
     
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"Error during generation: {e}"
 
 # --- MAIN EXECUTION ---
 def main():
@@ -72,8 +99,7 @@ def main():
     
     briefing = summarize_with_gemini(combined_raw)
     
-    # Save to file
-    filename = f"briefing.md" # We overwrite the same file so the URL is constant for Phase 2
+    filename = "briefing.md"
     with open(filename, "w", encoding="utf-8") as f:
         f.write(f"# Daily AI Pulse: {DATE_STR}\n\n{briefing}")
     

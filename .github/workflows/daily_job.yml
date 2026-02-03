@@ -3,7 +3,7 @@ name: Daily AI Briefing
 on:
   schedule:
     - cron: '0 7 * * *' # Runs at 07:00 UTC every day
-  workflow_dispatch: # Allows you to run it manually to test
+  workflow_dispatch: # Allows you to run it manually
 
 permissions:
   contents: write
@@ -19,7 +19,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
+        python-version: '3.11' # Upgraded from 3.9 to fix warnings
 
     - name: Install dependencies
       run: |
