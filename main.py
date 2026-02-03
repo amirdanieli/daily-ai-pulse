@@ -5,7 +5,7 @@ import google.generativeai as genai
 from bs4 import BeautifulSoup
 
 # --- CONFIGURATION ---
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"].strip()
 DATE_STR = datetime.datetime.now().strftime("%Y-%m-%d")
 
 # --- SOURCE 1: HACKER NEWS (via Algolia API) ---
