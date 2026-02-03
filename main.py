@@ -62,7 +62,7 @@ def summarize_with_gemini(raw_data):
         
         # Using the standard model alias for the new SDK
         response = client.models.generate_content(
-            model='gemini-2.0-flash', 
+            model='Gemini 2.5 Flash-Lite', 
             contents=prompt
         )
         return response.text
