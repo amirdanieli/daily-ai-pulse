@@ -1,6 +1,7 @@
 import os
 import requests
 import datetime
+import time
 from google import genai
 from bs4 import BeautifulSoup
 
@@ -41,44 +42,47 @@ def get_github_trending():
         print(f"Warning: GitHub fetch failed: {e}")
         return "No GitHub data available."
 
-# --- THE CURATOR (New Google GenAI SDK) ---
+# --- THE CURATOR (Gemini 1.5 Flash) ---
 def summarize_with_gemini(raw_data):
-    print("Initializing new Google GenAI Client...")
+    print("Initializing Google GenAI Client...")
+    client = genai.Client(api_key=GEMINI_API_KEY)
     
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        
-        prompt = f"""
-        You are the producer of a technical AI podcast. 
-        Here is the raw stream of news from Hacker News and GitHub for {DATE_STR}:
-        
-        {raw_data}
-        
-        TASK:
-        1. Select the top 5-7 most significant stories/tools.
-        2. Write a "Podcast Briefing" script.
-        3. Format it clearly with sections: "Top Headlines", "Deep Dive", and "Quick Hits".
-        """
-        
-        # Using the standard model alias for the new SDK
-        response = client.models.generate_content(
-            model='gemini-2.0-flash', 
-            contents=prompt
-        )
-        return response.text
-        
-    except Exception as e:
-        print(f"Gemini API Error: {e}")
-        # If 2.0 fails, try 1.5 as fallback
+    prompt = f"""
+    You are the producer of a technical AI podcast. 
+    Here is the raw stream of news from Hacker News and GitHub for {DATE_STR}:
+    
+    {raw_data}
+    
+    TASK:
+    1. Select the top 5-7 most significant stories/tools.
+    2. Write a "Podcast Briefing" script.
+    3. Format it clearly with sections: "Top Headlines", "Deep Dive", and "Quick Hits".
+    """
+    
+    # We strictly use the stable 1.5 model which has better EU availability
+    # We add a retry loop for 429 errors
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
-            print("Retrying with Gemini 1.5 Flash...")
+            print(f"Attempt {attempt+1} to generate briefing...")
             response = client.models.generate_content(
                 model='gemini-1.5-flash', 
                 contents=prompt
             )
             return response.text
-        except Exception as e2:
-            return f"CRITICAL ERROR: Could not generate briefing.\nPrimary error: {e}\nFallback error: {e2}"
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Error on attempt {attempt+1}: {error_msg}")
+            
+            # If it's a quota/rate limit error, wait and retry
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                print("Hit rate limit. Waiting 20 seconds...")
+                time.sleep(20)
+            else:
+                # If it's not a rate limit (like 404 or Auth), break immediately
+                return f"CRITICAL ERROR: {error_msg}"
+    
+    return "Failed to generate briefing after multiple attempts."
 
 # --- MAIN EXECUTION ---
 def main():
