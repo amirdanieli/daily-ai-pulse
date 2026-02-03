@@ -1,9 +1,8 @@
 import os
 import requests
 import datetime
-import google.generativeai as genai
+from google import genai
 from bs4 import BeautifulSoup
-import time
 
 # --- CONFIGURATION ---
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"].strip()
@@ -17,7 +16,6 @@ def get_hn_ai_news():
         response = requests.get(url, timeout=10).json()
         stories = []
         for hit in response['hits']:
-            # Filter for quality (min 20 points)
             if hit.get('points', 0) > 20: 
                 stories.append(f"- [HN] {hit['title']} (Link: {hit.get('url', 'N/A')})")
         return "\n".join(stories[:10]) 
@@ -43,52 +41,44 @@ def get_github_trending():
         print(f"Warning: GitHub fetch failed: {e}")
         return "No GitHub data available."
 
-# --- THE CURATOR (Gemini) ---
+# --- THE CURATOR (New Google GenAI SDK) ---
 def summarize_with_gemini(raw_data):
-    print("Sending data to Gemini...")
-    genai.configure(api_key=GEMINI_API_KEY)
-    
-    # Try the specific stable version first, fallback to Pro if it fails
-    models_to_try = ['gemini-1.5-flash-001', 'gemini-1.5-flash', 'gemini-pro']
-    
-    model = None
-    for model_name in models_to_try:
-        try:
-            print(f"Attempting to use model: {model_name}")
-            model = genai.GenerativeModel(model_name)
-            # Test connection with a tiny prompt before sending the big one
-            model.generate_content("test") 
-            print(f"Success! Connected to {model_name}")
-            break
-        except Exception as e:
-            print(f"Failed to connect to {model_name}: {e}")
-            model = None
-
-    if not model:
-        # If all fail, list available models to debug
-        print("CRITICAL ERROR: Could not connect to any model. Listing available models:")
-        for m in genai.list_models():
-            print(m.name)
-        return "Error: Could not generate briefing. Check logs."
-
-    prompt = f"""
-    You are the producer of a technical AI podcast. 
-    Here is the raw stream of news from Hacker News and GitHub for {DATE_STR}:
-    
-    {raw_data}
-    
-    TASK:
-    1. Select the top 5-7 most significant stories/tools. Focus on new open-source tools, model releases, or major research updates.
-    2. Write a "Podcast Briefing" script.
-    3. Format it clearly with sections: "Top Headlines", "Deep Dive (The #1 Story)", and "Quick Hits".
-    4. Keep it concise.
-    """
+    print("Initializing new Google GenAI Client...")
     
     try:
-        response = model.generate_content(prompt)
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        
+        prompt = f"""
+        You are the producer of a technical AI podcast. 
+        Here is the raw stream of news from Hacker News and GitHub for {DATE_STR}:
+        
+        {raw_data}
+        
+        TASK:
+        1. Select the top 5-7 most significant stories/tools.
+        2. Write a "Podcast Briefing" script.
+        3. Format it clearly with sections: "Top Headlines", "Deep Dive", and "Quick Hits".
+        """
+        
+        # Using the standard model alias for the new SDK
+        response = client.models.generate_content(
+            model='gemini-2.0-flash', 
+            contents=prompt
+        )
         return response.text
+        
     except Exception as e:
-        return f"Error during generation: {e}"
+        print(f"Gemini API Error: {e}")
+        # If 2.0 fails, try 1.5 as fallback
+        try:
+            print("Retrying with Gemini 1.5 Flash...")
+            response = client.models.generate_content(
+                model='gemini-1.5-flash', 
+                contents=prompt
+            )
+            return response.text
+        except Exception as e2:
+            return f"CRITICAL ERROR: Could not generate briefing.\nPrimary error: {e}\nFallback error: {e2}"
 
 # --- MAIN EXECUTION ---
 def main():
